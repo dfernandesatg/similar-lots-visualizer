@@ -26,8 +26,8 @@ const ES_CONFIG = {
         apiKey: 'ApiKey UnRZbUtwa0I1RjB6SnVIbUJqV086bi0zTUUtRjhSV0doZlVCOHkwNW1tZw=='
     },
     staging: {
-        hostname: 'search-discovery-platform-dev.kb.us-east-1.aws.found.io',
-        apiKey: 'ApiKey VlBPWWtaWUJ5cmVPOElKQ1JLdlQ6cXVGV2Vaa0dUR3U4RkRDLWNNaXp4UQ=='
+        hostname: 'search-discovery-platform-dev.es.us-east-1.aws.found.io',
+        apiKey: 'ApiKey akg4MTVKd0JRcVc0WVU1ODFPUUU6M2xuUWlKeFBneFZ4ZzRxSXRETTJTZw=='
     }
 };
 
