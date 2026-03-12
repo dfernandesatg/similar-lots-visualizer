@@ -1,0 +1,21 @@
+{
+  "name": "item-recommendations-visualizer",
+  "version": "1.0.0",
+  "description": "Visual comparison tool for item recommendation experiments",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "recommendations",
+    "visualization",
+    "experiment",
+    "ab-testing"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
