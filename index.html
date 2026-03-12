@@ -764,11 +764,18 @@
         </div>
     </div>
 
-    <div id="visualToolbar" style="background: white; border-radius: 8px; padding: 15px 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; gap: 10px; flex-wrap: wrap;">
+    <div id="visualToolbar" style="background: white; border-radius: 8px; padding: 15px 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
         <button class="btn btn-secondary" onclick="exportToJSON()">📥 Export to JSON</button>
         <button class="btn btn-secondary" onclick="clearAll()">🗑️ Clear All</button>
         <button class="btn btn-primary" onclick="runAnalysis()">📊 Run Analysis</button>
         <button class="btn btn-secondary" onclick="saveCurrentExample()">💾 Save Example</button>
+        <div style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px; color: #999;">API:</span>
+            <div id="envToggle" style="display: flex; background: #f0f0f0; border-radius: 20px; padding: 3px; gap: 2px;">
+                <button id="envProdBtn" onclick="setEnv('prod')" style="padding: 4px 12px; font-size: 12px; border: none; border-radius: 16px; cursor: pointer; background: #333; color: white; font-weight: 600; transition: all 0.15s;">Prod</button>
+                <button id="envStagingBtn" onclick="setEnv('staging')" style="padding: 4px 12px; font-size: 12px; border: none; border-radius: 16px; cursor: pointer; background: transparent; color: #666; font-weight: 500; transition: all 0.15s;">Staging</button>
+            </div>
+        </div>
     </div>
 
     <!-- Visual Mode Container -->
@@ -977,6 +984,19 @@
     <script>
         let viewCount = 0;
         const views = new Map();
+        let currentEnv = 'prod'; // 'prod' | 'staging'
+
+        function setEnv(env) {
+            currentEnv = env;
+            document.getElementById('envProdBtn').style.background = env === 'prod' ? '#333' : 'transparent';
+            document.getElementById('envProdBtn').style.color = env === 'prod' ? 'white' : '#666';
+            document.getElementById('envStagingBtn').style.background = env === 'staging' ? '#e67e22' : 'transparent';
+            document.getElementById('envStagingBtn').style.color = env === 'staging' ? 'white' : '#666';
+        }
+
+        function similarLotsUrl() {
+            return currentEnv === 'staging' ? '/api/similar-lots?env=staging' : '/api/similar-lots';
+        }
         let currentEditingItem = null; // { viewId, index }
         let sourceItem = null;
 
@@ -997,7 +1017,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ lotId: lotId })
+                    body: JSON.stringify({ lotId: lotId, env: currentEnv })
                 });
 
                 if (!response.ok) {
@@ -1297,7 +1317,7 @@
 
             try {
                 // Step 1: Call similar-lots API
-                const similarLotsResponse = await fetch('/api/similar-lots', {
+                const similarLotsResponse = await fetch(similarLotsUrl(), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1322,7 +1342,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ lotIds: lotIds })
+                    body: JSON.stringify({ lotIds: lotIds, env: currentEnv })
                 });
 
                 if (!esResponse.ok) {
@@ -2776,7 +2796,7 @@
             const response = await fetch('/api/es-proxy', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lotId: lotId })
+                body: JSON.stringify({ lotId: lotId, env: currentEnv })
             });
 
             if (!response.ok) {
@@ -2820,7 +2840,7 @@
         async function runQueryAndGetEV(query) {
             // Call similar-lots API with latency tracking
             const t0 = performance.now();
-            const response = await fetch('/api/similar-lots', {
+            const response = await fetch(similarLotsUrl(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(query)
@@ -2841,7 +2861,7 @@
             const esResponse = await fetch('/api/es-bulk', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lotIds: lotIds.slice(0, 12) })
+                body: JSON.stringify({ lotIds: lotIds.slice(0, 12), env: currentEnv })
             });
 
             if (!esResponse.ok) {

@@ -19,7 +19,18 @@ const MIME_TYPES = {
     '.ico': 'image/x-icon'
 };
 
-// Elasticsearch proxy function for single lot ID
+// Elasticsearch config per environment
+const ES_CONFIG = {
+    prod: {
+        hostname: 'search-discovery-platform-prod.es.us-east-1.aws.found.io',
+        apiKey: 'ApiKey UnRZbUtwa0I1RjB6SnVIbUJqV086bi0zTUUtRjhSV0doZlVCOHkwNW1tZw=='
+    },
+    staging: {
+        hostname: 'search-discovery-platform-dev.kb.us-east-1.aws.found.io',
+        apiKey: 'ApiKey VlBPWWtaWUJ5cmVPOElKQ1JLdlQ6cXVGV2Vaa0dUR3U4RkRDLWNNaXp4UQ=='
+    }
+};
+
 function proxyElasticsearch(req, res) {
     let body = '';
     req.on('data', chunk => body += chunk);
@@ -27,6 +38,7 @@ function proxyElasticsearch(req, res) {
         try {
             const requestData = JSON.parse(body);
             const lotId = requestData.lotId;
+            const { hostname, apiKey } = ES_CONFIG[requestData.env === 'staging' ? 'staging' : 'prod'];
 
             if (!lotId) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -40,11 +52,11 @@ function proxyElasticsearch(req, res) {
             };
 
             const esOptions = (index) => ({
-                hostname: 'search-discovery-platform-prod.es.us-east-1.aws.found.io',
+                hostname,
                 path: `/${index}/_search`,
                 method: 'POST',
                 headers: {
-                    'Authorization': 'ApiKey UnRZbUtwa0I1RjB6SnVIbUJqV086bi0zTUUtRjhSV0doZlVCOHkwNW1tZw==',
+                    'Authorization': apiKey,
                     'Content-Type': 'application/json'
                 }
             });
@@ -60,7 +72,6 @@ function proxyElasticsearch(req, res) {
                         try {
                             const parsed = JSON.parse(responseData);
                             if (fallback && (!parsed.hits || parsed.hits.hits.length === 0)) {
-                                // Not found in live index, try ended index
                                 console.log(`Lot ${lotId} not found in ${index}, trying fallback...`);
                                 tryIndex(fallback, null);
                             } else {
@@ -106,6 +117,7 @@ function proxyElasticsearchBulk(req, res) {
         try {
             const requestData = JSON.parse(body);
             const lotIds = requestData.lotIds;
+            const { hostname, apiKey } = ES_CONFIG[requestData.env === 'staging' ? 'staging' : 'prod'];
 
             if (!lotIds || !Array.isArray(lotIds) || lotIds.length === 0) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -114,23 +126,17 @@ function proxyElasticsearchBulk(req, res) {
             }
 
             const query = {
-                query: {
-                    terms: {
-                        LotID: lotIds
-                    }
-                },
+                query: { terms: { LotID: lotIds } },
                 size: lotIds.length,
                 _source: ["LotID", "Title", "SaleProbability", "PredictedPrice", "House.ID", "House.Name", "Catalog.ID", "ShortDescription", "LongDescription"]
             };
 
-            const esUrl = new URL('https://search-discovery-platform-prod.es.us-east-1.aws.found.io/la_lot_live/_search');
-
             const options = {
-                hostname: esUrl.hostname,
-                path: esUrl.pathname + esUrl.search,
+                hostname,
+                path: '/la_lot_live/_search',
                 method: 'POST',
                 headers: {
-                    'Authorization': 'ApiKey UnRZbUtwa0I1RjB6SnVIbUJqV086bi0zTUUtRjhSV0doZlVCOHkwNW1tZw==',
+                    'Authorization': apiKey,
                     'Content-Type': 'application/json'
                 }
             };
@@ -172,7 +178,13 @@ function proxySimilarLots(req, res) {
         try {
             const requestData = JSON.parse(body);
 
-            const apiUrl = new URL('https://internal.atgapi.io/similar-lots/v1/search');
+            // Support ?env=staging to switch endpoints
+            const isStaging = req.url.includes('env=staging');
+            const targetUrl = isStaging
+                ? 'https://st-internal.atgapi.io/similar-lots/v1/search'
+                : 'https://internal.atgapi.io/similar-lots/v1/search';
+
+            const apiUrl = new URL(targetUrl);
 
             const options = {
                 hostname: apiUrl.hostname,
@@ -239,7 +251,7 @@ const server = http.createServer((req, res) => {
     }
 
     // Similar Lots API proxy endpoint
-    if (req.url === '/api/similar-lots' && req.method === 'POST') {
+    if (req.url.startsWith('/api/similar-lots') && req.method === 'POST') {
         proxySimilarLots(req, res);
         return;
     }
