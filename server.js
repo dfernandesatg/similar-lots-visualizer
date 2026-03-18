@@ -178,16 +178,30 @@ function proxySimilarLots(req, res) {
         try {
             const requestData = JSON.parse(body);
 
-            // Support ?env=staging to switch endpoints
-            const isStaging = req.url.includes('env=staging');
-            const targetUrl = isStaging
-                ? 'https://st-internal.atgapi.io/similar-lots/v1/search'
-                : 'https://internal.atgapi.io/similar-lots/v1/search';
+            // Determine target URL from _endpointUrl field, falling back to env query param
+            let targetUrl;
+            const endpointParam = requestData._endpointUrl;
+            delete requestData._endpointUrl;
+
+            if (endpointParam && endpointParam.startsWith('http')) {
+                targetUrl = endpointParam;
+            } else if (endpointParam === 'stage') {
+                targetUrl = 'https://st-internal.atgapi.io/similar-lots/v1/search';
+            } else if (endpointParam === 'prod') {
+                targetUrl = 'https://internal.atgapi.io/similar-lots/v1/search';
+            } else {
+                const isStaging = req.url.includes('env=staging');
+                targetUrl = isStaging
+                    ? 'https://st-internal.atgapi.io/similar-lots/v1/search'
+                    : 'https://internal.atgapi.io/similar-lots/v1/search';
+            }
 
             const apiUrl = new URL(targetUrl);
+            const useHttp = apiUrl.protocol === 'http:';
 
             const options = {
                 hostname: apiUrl.hostname,
+                port: apiUrl.port || (useHttp ? 80 : 443),
                 path: apiUrl.pathname + apiUrl.search,
                 method: 'POST',
                 headers: {
@@ -196,7 +210,8 @@ function proxySimilarLots(req, res) {
                 }
             };
 
-            const proxyReq = https.request(options, (proxyRes) => {
+            const transport = useHttp ? http : https;
+            const proxyReq = transport.request(options, (proxyRes) => {
                 let responseData = '';
                 proxyRes.on('data', chunk => responseData += chunk);
                 proxyRes.on('end', () => {

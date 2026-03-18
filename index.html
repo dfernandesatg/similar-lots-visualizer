@@ -691,6 +691,14 @@
             width: 16px; height: 16px;
             cursor: pointer;
         }
+        .bulk-field-row select {
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+            cursor: pointer;
+        }
         .bulk-extra-fields {
             display: flex;
             flex-wrap: wrap;
@@ -770,7 +778,7 @@
         <button class="btn btn-primary" onclick="runAnalysis()">📊 Run Analysis</button>
         <button class="btn btn-secondary" onclick="saveCurrentExample()">💾 Save Example</button>
         <div style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 12px; color: #999;">API:</span>
+            <span style="font-size: 12px; color: #999;">ES:</span>
             <div id="envToggle" style="display: flex; background: #f0f0f0; border-radius: 20px; padding: 3px; gap: 2px;">
                 <button id="envProdBtn" onclick="setEnv('prod')" style="padding: 4px 12px; font-size: 12px; border: none; border-radius: 16px; cursor: pointer; background: #333; color: white; font-weight: 600; transition: all 0.15s;">Prod</button>
                 <button id="envStagingBtn" onclick="setEnv('staging')" style="padding: 4px 12px; font-size: 12px; border: none; border-radius: 16px; cursor: pointer; background: transparent; color: #666; font-weight: 500; transition: all 0.15s;">Staging</button>
@@ -994,9 +1002,6 @@
             document.getElementById('envStagingBtn').style.color = env === 'staging' ? 'white' : '#666';
         }
 
-        function similarLotsUrl() {
-            return currentEnv === 'staging' ? '/api/similar-lots?env=staging' : '/api/similar-lots';
-        }
         let currentEditingItem = null; // { viewId, index }
         let sourceItem = null;
 
@@ -1317,7 +1322,7 @@
 
             try {
                 // Step 1: Call similar-lots API
-                const similarLotsResponse = await fetch(similarLotsUrl(), {
+                const similarLotsResponse = await fetch('/api/similar-lots', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -2453,6 +2458,7 @@
 
         // Fields shown in the structured form (lotId/imageUrl/title/description injected automatically)
         const BULK_FIELDS = [
+            { key: '_endpointUrl',           label: 'Endpoint',               type: 'endpoint', default: 'prod' },
             { key: 'originSystem',           label: 'originSystem',           type: 'text',     default: 'LA' },
             { key: 'excludeRestricted',      label: 'excludeRestricted',      type: 'boolean',  default: true },
             { key: 'matchTerms',             label: 'matchTerms',             type: 'json',     default: '["lot title"]' },
@@ -2472,7 +2478,22 @@
             let html = '<div class="bulk-fields-grid">';
             for (const f of BULK_FIELDS) {
                 const val = overrides && overrides[f.key] !== undefined ? overrides[f.key] : f.default;
-                if (f.type === 'boolean') {
+                if (f.type === 'endpoint') {
+                    const isCustom = val && !['prod', 'stage'].includes(val);
+                    const selectVal = isCustom ? 'custom' : (val || 'prod');
+                    const customUrl = isCustom ? val : '';
+                    html += `<div class="bulk-field-row">
+                        <label for="${prefix}-${f.key}">${f.label}</label>
+                        <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
+                            <select id="${prefix}-${f.key}" onchange="toggleCustomEndpoint('${prefix}-${f.key}')">
+                                <option value="prod" ${selectVal === 'prod' ? 'selected' : ''}>Prod</option>
+                                <option value="stage" ${selectVal === 'stage' ? 'selected' : ''}>Stage</option>
+                                <option value="custom" ${selectVal === 'custom' ? 'selected' : ''}>Custom</option>
+                            </select>
+                            <input type="text" id="${prefix}-${f.key}-custom" placeholder="https://custom-endpoint/similar-lots/v1/search" value="${customUrl}" style="display: ${isCustom ? 'block' : 'none'}; flex: 1;">
+                        </div>
+                    </div>`;
+                } else if (f.type === 'boolean') {
                     html += `<div class="bulk-field-row">
                         <label for="${prefix}-${f.key}">${f.key}</label>
                         <input type="checkbox" id="${prefix}-${f.key}" ${val ? 'checked' : ''}>
@@ -2514,6 +2535,14 @@
             return html;
         }
 
+        function toggleCustomEndpoint(selectId) {
+            const select = document.getElementById(selectId);
+            const customInput = document.getElementById(selectId + '-custom');
+            if (customInput) {
+                customInput.style.display = select.value === 'custom' ? 'block' : 'none';
+            }
+        }
+
         function addBulkExtraField(containerId) {
             const container = document.getElementById(containerId);
             const row = document.createElement('div');
@@ -2535,7 +2564,14 @@
             for (const f of BULK_FIELDS) {
                 const el = document.getElementById(`${prefix}-${f.key}`);
                 if (!el) continue;
-                if (f.type === 'boolean') {
+                if (f.type === 'endpoint') {
+                    if (el.value === 'custom') {
+                        const customEl = document.getElementById(`${prefix}-${f.key}-custom`);
+                        query[f.key] = customEl ? customEl.value.trim() : 'prod';
+                    } else {
+                        query[f.key] = el.value;
+                    }
+                } else if (f.type === 'boolean') {
                     query[f.key] = el.checked;
                 } else if (f.type === 'number') {
                     const v = parseFloat(el.value);
@@ -2838,9 +2874,8 @@
         }
 
         async function runQueryAndGetEV(query) {
-            // Call similar-lots API with latency tracking
             const t0 = performance.now();
-            const response = await fetch(similarLotsUrl(), {
+            const response = await fetch('/api/similar-lots', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(query)
