@@ -879,9 +879,17 @@
             </div>
 
             <div style="margin-bottom: 20px;">
-                <label style="font-weight: 600; font-size: 13px; color: #333; display: block; margin-bottom: 8px;">
-                    Source Lot IDs (one per line or comma-separated)
-                </label>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="font-weight: 600; font-size: 13px; color: #333;">
+                        Source Lot IDs (one per line or comma-separated)
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <input type="number" id="randomLotCount" value="10" min="1" max="500" style="width: 60px; padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; text-align: center;">
+                        <button class="btn btn-secondary" onclick="fetchRandomLotIds()" id="randomLotBtn" style="padding: 4px 12px; font-size: 12px;">
+                            🎲 Random from ES
+                        </button>
+                    </div>
+                </div>
                 <textarea id="bulkLotIds" rows="6" style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-family: monospace; font-size: 12px; resize: vertical;" placeholder="Enter Lot IDs here..."></textarea>
             </div>
 
@@ -3263,6 +3271,36 @@
             localStorage.setItem('recommendationExamples', JSON.stringify(savedExamples));
 
             alert(`Bulk results "${name}" saved successfully!`);
+        }
+
+        async function fetchRandomLotIds() {
+            const count = parseInt(document.getElementById('randomLotCount').value) || 10;
+            const btn = document.getElementById('randomLotBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Fetching...';
+
+            try {
+                const response = await fetch('/api/es-random', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ count, env: currentEnv })
+                });
+
+                if (!response.ok) throw new Error(`ES error: ${response.status}`);
+
+                const data = await response.json();
+                if (!data.lotIds || data.lotIds.length === 0) {
+                    alert('No lot IDs returned from Elasticsearch');
+                    return;
+                }
+
+                document.getElementById('bulkLotIds').value = data.lotIds.join('\n');
+            } catch (error) {
+                alert('Failed to fetch random lot IDs: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🎲 Random from ES';
+            }
         }
 
         function clearBulkResults() {
