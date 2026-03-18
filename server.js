@@ -178,16 +178,30 @@ function proxySimilarLots(req, res) {
         try {
             const requestData = JSON.parse(body);
 
-            // Support ?env=staging to switch endpoints
-            const isStaging = req.url.includes('env=staging');
-            const targetUrl = isStaging
-                ? 'https://st-internal.atgapi.io/similar-lots/v1/search'
-                : 'https://internal.atgapi.io/similar-lots/v1/search';
+            // Determine target URL from _endpointUrl field, falling back to env query param
+            let targetUrl;
+            const endpointParam = requestData._endpointUrl;
+            delete requestData._endpointUrl;
+
+            if (endpointParam && endpointParam.startsWith('http')) {
+                targetUrl = endpointParam;
+            } else if (endpointParam === 'stage') {
+                targetUrl = 'https://st-internal.atgapi.io/similar-lots/v1/search';
+            } else if (endpointParam === 'prod') {
+                targetUrl = 'https://internal.atgapi.io/similar-lots/v1/search';
+            } else {
+                const isStaging = req.url.includes('env=staging');
+                targetUrl = isStaging
+                    ? 'https://st-internal.atgapi.io/similar-lots/v1/search'
+                    : 'https://internal.atgapi.io/similar-lots/v1/search';
+            }
 
             const apiUrl = new URL(targetUrl);
+            const useHttp = apiUrl.protocol === 'http:';
 
             const options = {
                 hostname: apiUrl.hostname,
+                port: apiUrl.port || (useHttp ? 80 : 443),
                 path: apiUrl.pathname + apiUrl.search,
                 method: 'POST',
                 headers: {
@@ -196,7 +210,8 @@ function proxySimilarLots(req, res) {
                 }
             };
 
-            const proxyReq = https.request(options, (proxyRes) => {
+            const transport = useHttp ? http : https;
+            const proxyReq = transport.request(options, (proxyRes) => {
                 let responseData = '';
                 proxyRes.on('data', chunk => responseData += chunk);
                 proxyRes.on('end', () => {
@@ -225,6 +240,72 @@ function proxySimilarLots(req, res) {
     });
 }
 
+function proxyElasticsearchRandom(req, res) {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+        try {
+            const requestData = JSON.parse(body);
+            const count = Math.min(parseInt(requestData.count) || 10, 500);
+            const { hostname, apiKey } = ES_CONFIG[requestData.env === 'staging' ? 'staging' : 'prod'];
+
+            const query = {
+                size: count,
+                query: {
+                    function_score: {
+                        query: { match_all: {} },
+                        random_score: {}
+                    }
+                },
+                _source: ["LotID"]
+            };
+
+            const options = {
+                hostname,
+                path: '/la_lot_live/_search',
+                method: 'POST',
+                headers: {
+                    'Authorization': apiKey,
+                    'Content-Type': 'application/json'
+                }
+            };
+
+            const proxyReq = https.request(options, (proxyRes) => {
+                let responseData = '';
+                proxyRes.on('data', chunk => responseData += chunk);
+                proxyRes.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(responseData);
+                        const lotIds = (parsed.hits?.hits || []).map(h => h._source?.LotID).filter(Boolean);
+                        res.writeHead(200, {
+                            'Content-Type': 'application/json',
+                            'Access-Control-Allow-Origin': '*'
+                        });
+                        res.end(JSON.stringify({ lotIds }));
+                    } catch (e) {
+                        res.writeHead(500, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: 'Failed to parse ES response' }));
+                    }
+                });
+            });
+
+            proxyReq.on('error', (error) => {
+                console.error('ES random query error:', error);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: error.message }));
+            });
+
+            proxyReq.write(JSON.stringify(query));
+            proxyReq.end();
+
+        } catch (error) {
+            console.error('Random lots error:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: error.message }));
+        }
+    });
+}
+
 const server = http.createServer((req, res) => {
     // Enable CORS for all responses
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -247,6 +328,12 @@ const server = http.createServer((req, res) => {
     // Elasticsearch bulk query endpoint (multiple lots)
     if (req.url === '/api/es-bulk' && req.method === 'POST') {
         proxyElasticsearchBulk(req, res);
+        return;
+    }
+
+    // Elasticsearch random lot IDs endpoint
+    if (req.url === '/api/es-random' && req.method === 'POST') {
+        proxyElasticsearchRandom(req, res);
         return;
     }
 
